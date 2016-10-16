@@ -1,4 +1,4 @@
-# Copyright (C) 2007-2012 LuaDist.
+# Copyright (C) 2007-2016 LuaDist.
 # Submited by David Manura, Peter Drahos
 # Redistribution and use of this file is allowed according to the terms of the MIT license.
 # For details see the COPYRIGHT file distributed with LuaDist.
