@@ -24,4 +24,16 @@ local pl = require 'pl.import_into' ()
 assert(pl.utils)
 assert(pl.tablex)
 assert(pl.data)
--- and so forth
+assert(not _G.utils)
+assert(not _G.tablex)
+assert(not _G.data)
+
+require 'pl.import_into'(_G)
+assert(_G.utils)
+assert(_G.tablex)
+assert(_G.data)
+
+require 'pl.import_into'(_G)
+assert(_G.utils)
+assert(_G.tablex)
+assert(_G.data)

@@ -51,8 +51,8 @@ local filetypes = {
 lapp.show_usage_error = true
 
 --- quit this script immediately.
--- @param msg optional message
--- @param no_usage suppress 'usage' display
+-- @string msg optional message
+-- @bool no_usage suppress 'usage' display
 function lapp.quit(msg,no_usage)
     if no_usage == 'throw' then
         error(msg)
@@ -67,8 +67,8 @@ function lapp.quit(msg,no_usage)
 end
 
 --- print an error to stderr and quit.
--- @param msg a message
--- @param no_usage suppress 'usage' display
+-- @string msg a message
+-- @bool no_usage suppress 'usage' display
 function lapp.error(msg,no_usage)
     if not lapp.show_usage_error then
         no_usage = true
@@ -80,8 +80,8 @@ end
 
 --- open a file.
 -- This will quit on error, and keep a list of file objects for later cleanup.
--- @param file filename
--- @param opt same as second parameter of <code>io.open</code>
+-- @string file filename
+-- @string[opt] opt same as second parameter of `io.open`
 function lapp.open (file,opt)
     local val,err = io.open(file,opt)
     if not val then lapp.error(err,true) end
@@ -90,8 +90,8 @@ function lapp.open (file,opt)
 end
 
 --- quit if the condition is false.
--- @param condn a condition
--- @param msg an optional message
+-- @bool condn a condition
+-- @string msg message text
 function lapp.assert(condn,msg)
     if not condn then
         lapp.error(msg)
@@ -131,9 +131,9 @@ end
 
 --- add a new type to Lapp. These appear in parens after the value like
 -- a range constraint, e.g. '<ival> (integer) Process PID'
--- @param name name of type
+-- @string name name of type
 -- @param converter either a function to convert values, or a Lua type name.
--- @param constraint optional function to verify values, should use lapp.error
+-- @func[opt] constraint optional function to verify values, should use lapp.error
 -- if failed.
 function lapp.add_type (name,converter,constraint)
     types[name] = {converter=converter,constraint=constraint}
@@ -164,9 +164,9 @@ local function process_default (sval,vtype)
 end
 
 --- process a Lapp options string.
--- Usually called as lapp().
--- @param str the options text
--- @param args a table of arguments (default is `_G.arg`)
+-- Usually called as `lapp()`.
+-- @string str the options text
+-- @tparam {string} args a table of arguments (default is `_G.arg`)
 -- @return a table with parameter-value pairs
 function lapp.process_options_string(str,args)
     local results = {}
@@ -304,6 +304,7 @@ function lapp.process_options_string(str,args)
     local iextra = 1
     local i = 1
     local parm,ps,val
+    local end_of_flags = false
 
     local function check_parm (parm)
         local eqi = parm:find '='
@@ -321,8 +322,19 @@ function lapp.process_options_string(str,args)
     while i <= #arg do
         local theArg = arg[i]
         local res = {}
+        -- after '--' we don't parse args and they end up in 
+        -- the array part of the result (args[1] etc)
+        if theArg == '--' then
+            end_of_flags = true
+            iparm = #parmlist + 1
+            i = i + 1
+            theArg = arg[i]
+            if not theArg then
+                break
+            end
+        end
         -- look for a flag, -<short flags> or --<long flag>
-        if match('--$S{long}',theArg,res) or match('-$S{short}',theArg,res) then
+        if not end_of_flags and (match('--$S{long}',theArg,res) or match('-$S{short}',theArg,res)) then
             if res.long then -- long option
                 parm = check_parm(res.long)
             elseif #res.short == 1 or is_flag(res.short) then
@@ -332,7 +344,7 @@ function lapp.process_options_string(str,args)
                 if not eq then
                     parm = at(parmstr,1)
                     local flag = is_flag(parm)
-                    if flag.type ~= 'boolean' then
+                    if flag and flag.type ~= 'boolean' then
                     --if isdigit(at(parmstr,2)) then
                         -- a short option followed by a digit is an exception (for AW;))
                         -- push ahead into the arg array
@@ -373,6 +385,7 @@ function lapp.process_options_string(str,args)
             if not val then
                 i = i + 1
                 val = arg[i]
+                theArg = val
             end
             lapp.assert(val,parm.." was expecting a value")
         else -- toggle boolean flags (usually false -> true)
@@ -401,7 +414,10 @@ function lapp.process_options_string(str,args)
 end
 
 if arg then
-    script = arg[0]:gsub('.+[\\/]',''):gsub('%.%a+$','')
+    script = arg[0]
+    script = script or rawget(_G,"LAPP_SCRIPT") or "unknown"
+    -- strip dir and extension to get current script name
+    script = script:gsub('.+[\\/]',''):gsub('%.%a+$','')
 else
     script = "inter"
 end

@@ -23,11 +23,11 @@ testpath ([[../../alice/jones]],'../../alice','jones','')
 testpath ([[alice]],'','alice','')
 testpath ([[/path-to/dog/]],[[/path-to/dog]],'','')
 
-asserteq( path.isdir( "../doc" ), true )
-asserteq( path.isdir( "../doc/config.ld" ), false )
+asserteq( path.isdir( "doc" ), true )
+asserteq( path.isdir( "doc/config.ld" ), false )
 
-asserteq( path.isfile( "../doc" ), false )
-asserteq( path.isfile( "../doc/config.ld" ), true )
+asserteq( path.isfile( "doc" ), false )
+asserteq( path.isfile( "doc/config.ld" ), true )
 
 local norm = path.normpath
 local p = norm '/a/b'
@@ -36,21 +36,35 @@ asserteq(norm '/a/fred/../b',p)
 asserteq(norm '/a//b',p)
 
 function testnorm(p1,p2)
-    asserteq(p2,norm(p1):gsub('\\','/'))
+    asserteq(norm(p1):gsub('\\','/'), p2)
 end
 
-testnorm('a/b/..','a/')
+testnorm('a/b/..','a')
 testnorm('a/b/../..','.')
 testnorm('a/b/../c/../../d','d')
-testnorm('a/.','a/.')
-testnorm('a/./','a/')
+testnorm('a/.','a')
+testnorm('a/./','a')
 testnorm('a/b/.././..','.')
+testnorm('../../a/b','../../a/b')
+testnorm('../../a/b/../../','../..')
+testnorm('../../a/b/../c','../../a/c')
+testnorm('./../../a/b/../c','../../a/c')
+testnorm('a/..b', 'a/..b')
+testnorm('./a', 'a')
+testnorm('a/.', 'a')
+testnorm('a/', 'a')
+testnorm('/a', '/a')
 
 if path.is_windows then
-  asserteq(norm [[\a\.\b]],p)
-  -- UNC paths
-  asserteq(norm [[\\bonzo\..\dog]], [[\\dog]])
-  asserteq(norm [[\\?\c:\bonzo\dog\.\]],[[\\?\c:\bonzo\dog\]])
+    testnorm('C://a', 'C:/a')
+    testnorm('C:/../a', 'C:/../a')
+    asserteq(norm [[\a\.\b]], p)
+    -- UNC paths
+    asserteq(norm [[\\bonzo\..\dog]], [[\\dog]])
+    asserteq(norm [[\\?\c:\bonzo\dog\.\]], [[\\?\c:\bonzo\dog]])
+else
+    testnorm('//a', '//a')
+    testnorm('///a', '/a')
 end
 
 asserteq(norm '1/2/../3/4/../5',norm '1/3/5')

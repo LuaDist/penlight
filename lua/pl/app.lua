@@ -21,8 +21,8 @@ end
 -- `base` allows these modules to be put in a specified subdirectory, to allow for
 -- cleaner deployment and resolve potential conflicts between a script name and its
 -- library directory.
--- @param base optional base directory.
--- @return the current script's path with a trailing slash
+-- @string base optional base directory.
+-- @treturn string the current script's path with a trailing slash
 function app.require_here (base)
     local p = path.dirname(check_script_name())
     if not path.isabs(p) then
@@ -45,7 +45,7 @@ end
 --- return a suitable path for files private to this application.
 -- These will look like '~/.SNAME/file', with '~' as with expanduser and
 -- SNAME is the name of the script without .lua extension.
--- @param file a filename (w/out path)
+-- @string file a filename (w/out path)
 -- @return a full pathname, or nil
 -- @return 'cannot create' error
 function app.appfile (file)
@@ -85,11 +85,7 @@ function app.lua ()
     end
     local cmd, append = {}, table.insert
     for i = imin,-1 do
-        local a = args[i]
-        if a:match '%s' then
-            a = '"'..a..'"'
-        end
-        append(cmd,a)
+        append(cmd, utils.quote_arg(args[i]))
     end
     return table.concat(cmd,' '),args[imin]
 end
@@ -99,8 +95,8 @@ end
 -- These may be given a value with either '=' or ':' (`-k:2`,`--alpha=3.2`,`-n2`);
 -- note that a number value can be given without a space.
 -- Multiple short args can be combined like so: ( `-abcd`).
--- @param args an array of strings (default is the global `arg`)
--- @param flags_with_values any flags that take values, e.g. <code>{out=true}</code>
+-- @tparam {string} args an array of strings (default is the global `arg`)
+-- @tab flags_with_values any flags that take values, e.g. `{out=true}`
 -- @return a table of flags (flag=value pairs)
 -- @return an array of parameters
 -- @raise if args is nil, then the global `args` must be available!
@@ -123,7 +119,7 @@ function app.parse_args (args,flags_with_values)
                 v = v:sub(2)
             end
             if flags_with_values[v] then
-                if i == #_args or args[i+1]:find '^-' then
+                if i == #args or args[i+1]:find '^-' then
                     return utils.raise ("no value for '"..v.."'")
                 end
                 flags[v] = args[i+1]

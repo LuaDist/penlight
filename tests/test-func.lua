@@ -1,4 +1,6 @@
-require 'pl'
+local utils = require 'pl.utils'
+local List = require 'pl.List'
+local tablex = require 'pl.tablex'
 asserteq = require('pl.test').asserteq
 utils.import('pl.func')
 
@@ -23,8 +25,6 @@ function teste (e,rs,ve)
 	local rep = repr(e)
     asserteq(rep,rs)
 end
-
-import ('math')
 
 teste(_1+_2('hello'),'_1 + _2(_C1)',{"hello"})
 teste(_1:method(),'_1[_C1](_1)',{"method"})

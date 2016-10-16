@@ -2,7 +2,7 @@
 -- See  @{05-dates.md|the Guide}.
 --
 -- Dependencies: `pl.class`, `pl.stringx`
--- @module pl.Date
+-- @classmod pl.Date
 -- @pragma nostrip
 
 local class = require 'pl.class'
@@ -27,7 +27,8 @@ Date.Format = class()
 -- @param ...  true if  Universal Coordinated Time, or two to five numbers: month,day,hour,min,sec
 -- @function Date
 function Date:_init(t,...)
-    local nargs = select('#',...), time
+    local time
+    local nargs = select('#',...)
     if nargs > 2 then
         local extra = {...}
         local year = t
@@ -76,7 +77,7 @@ function Date:_init(t,...)
 end
 
 --- set the current time of this Date object.
--- @param t seconds since epoch
+-- @int t seconds since epoch
 function Date:set(t)
     self.time = t
     if self.utc then
@@ -87,7 +88,7 @@ function Date:set(t)
 end
 
 --- get the time zone offset from UTC.
--- @return seconds ahead of UTC
+-- @int ts seconds ahead of UTC
 function Date.tzone (ts)
     if ts == nil then
         ts = os_time()
@@ -126,42 +127,42 @@ function Date:toLocal ()
 end
 
 --- set the year.
--- @param y Four-digit year
+-- @int y Four-digit year
 -- @class function
 -- @name Date:year
 
 --- set the month.
--- @param m month
+-- @int m month
 -- @class function
 -- @name Date:month
 
 --- set the day.
--- @param d day
+-- @int d day
 -- @class function
 -- @name Date:day
 
 --- set the hour.
--- @param h hour
+-- @int h hour
 -- @class function
 -- @name Date:hour
 
 --- set the minutes.
--- @param min minutes
+-- @int min minutes
 -- @class function
 -- @name Date:min
 
 --- set the seconds.
--- @param sec seconds
+-- @int sec seconds
 -- @class function
 -- @name Date:sec
 
 --- set the day of year.
 -- @class function
--- @param yday day of year
+-- @int yday day of year
 -- @name Date:yday
 
 --- get the year.
--- @param y Four-digit year
+-- @int y Four-digit year
 -- @class function
 -- @name Date:year
 
@@ -204,15 +205,15 @@ for _,c in ipairs{'year','month','day','hour','min','sec','yday'} do
 end
 
 --- name of day of week.
--- @param full abbreviated if true, full otherwise.
--- @return string name
+-- @bool full abbreviated if true, full otherwise.
+-- @ret string name
 function Date:weekday_name(full)
     return os_date(full and '%A' or '%a',self.time)
 end
 
 --- name of month.
--- @param full abbreviated if true, full otherwise.
--- @return string name
+-- @int full abbreviated if true, full otherwise.
+-- @ret string name
 function Date:month_name(full)
     return os_date(full and '%B' or '%b',self.time)
 end
@@ -232,7 +233,7 @@ function Date:add(t)
     self.tab[key] = self.tab[key] + val
     self:set(os_time(self.tab))
     if old_dst ~= self.tab.isdst then
-        self.tab.hour = self.tab.hour - (old_dist and 1 or -1)
+        self.tab.hour = self.tab.hour - (old_dst and 1 or -1)
         self:set(os_time(self.tab))
     end
     return self
@@ -252,7 +253,7 @@ function Date:last_day()
 end
 
 --- difference between two Date objects.
--- @param other Date object
+-- @tparam Date other Date object
 -- @treturn Date.Interval object
 function Date:diff(other)
     local dt = self.time - other.time
@@ -262,7 +263,11 @@ end
 
 --- long numerical ISO data format version of this date.
 function Date:__tostring()
-    local t = os_date('%Y-%m-%dT%H:%M:%S',self.time)
+    local fmt = '%Y-%m-%dT%H:%M:%S'
+    if self.utc then
+        fmt = "!"..fmt
+    end
+    local t = os_date(fmt,self.time)
     if self.utc then
         return  t .. 'Z'
     else
@@ -310,7 +315,7 @@ end
 Date.Interval = class(Date)
 
 ---- Date.Interval constructor
--- @param t an interval in seconds
+-- @int t an interval in seconds
 -- @function Date.Interval
 function Date.Interval:_init(t)
     self:set(t)
@@ -357,7 +362,7 @@ local formats = {
 }
 
 --- Date.Format constructor.
--- @param fmt. A string where the following fields are significant:
+-- @string fmt. A string where the following fields are significant:
 --
 --   * d day (either d or dd)
 --   * y year (either yy or yyy)
@@ -431,7 +436,7 @@ end
 local parse_date
 
 --- parse a string into a Date object.
--- @param str a date string
+-- @string str a date string
 -- @return date object
 function Date.Format:parse(str)
     assert_string(1,str)
@@ -466,8 +471,17 @@ end
 -- @param d a date object, or a time value as returned by @{os.time}
 -- @return string
 function Date.Format:tostring(d)
-    local tm = type(d) == 'number' and d or d.time
-    return os_date(self.outf,tm)
+    local tm
+    local fmt = self.outf
+    if type(d) == 'number' then
+        tm = d
+    else
+        tm = d.time
+        if d.utc then
+            fmt = '!'..fmt
+        end
+    end
+    return os_date(fmt,tm)
 end
 
 --- force US order in dates like 9/11/2001
@@ -477,6 +491,17 @@ end
 
 --local months = {jan=1,feb=2,mar=3,apr=4,may=5,jun=6,jul=7,aug=8,sep=9,oct=10,nov=11,dec=12}
 local months
+local parse_date_unsafe
+local function create_months()
+    local ld, day1 = parse_date_unsafe '2000-12-31', {day=1}
+    months = {}
+    for i = 1,12 do
+        ld = ld:last_day()
+        ld:add(day1)
+        local mon = ld:month_name():lower()
+        months [mon] = i
+    end
+end
 
 --[[
 Allowed patterns:
@@ -485,8 +510,9 @@ Allowed patterns:
 
 ]]
 
-
-local is_word = stringx.isalpha
+local function looks_like_a_month(w) 
+    return w:match '^%a+,*$' ~= nil
+end
 local is_number = stringx.isdigit
 local function tonum(s,l1,l2,kind)
     kind = kind or ''
@@ -509,7 +535,9 @@ local function  parse_iso_end(p,ns,sec)
     end
     -- ISO 8601 dates may end in Z (for UTC) or [+-][isotime]
     -- (we're working with the date as lower case, hence 'z')
-    if p:match 'z$' then return sec, {h=0,m=0} end -- we're UTC!
+    if p:match 'z$' then -- we're UTC!
+        return  sec, {h=0,m=0}
+    end 
     p = p:gsub(':','') -- turn 00:30 to 0030
     local _,_,sign,offs = p:find('^([%+%-])(%d+)')
     if not sign then return sec, nil end -- not UTC
@@ -520,7 +548,7 @@ local function  parse_iso_end(p,ns,sec)
     return sec, tz
 end
 
-local function parse_date_unsafe (s,US)
+function parse_date_unsafe (s,US)
     s = s:gsub('T',' ') -- ISO 8601
     local parts = stringx.split(s:lower())
     local i,p = 1,parts[1]
@@ -549,17 +577,10 @@ local function parse_date_unsafe (s,US)
             year = true
         end
     end
-    if p and is_word(p) then
+    if p and looks_like_a_month(p) then -- date followed by month
         p = p:sub(1,3)
         if not months then
-            local ld, day1 = parse_date_unsafe '2000-12-31', {day=1}
-            months = {}
-            for i = 1,12 do
-                ld = ld:last_day()
-                ld:add(day1)
-                local mon = ld:month_name():lower()
-                months [mon] = i
-            end
+            create_months()
         end
         local mon = months[p]
         if mon then
@@ -616,11 +637,14 @@ local function parse_date_unsafe (s,US)
     sec = sec and tonum(sec,0,60) or 0  --60 used to indicate leap second
     local res = Date {year = year, month = month, day = day, hour = hour, min = min, sec = sec}
     if tz then -- ISO 8601 UTC time
-        res:add {hour = -tz.h}
-        if tz.m ~= 0 then res:add {min = -tz.m} end
+        local corrected = false
+        if tz.h ~= 0 then res:add {hour = -tz.h}; corrected = true end
+        if tz.m ~= 0 then res:add {min = -tz.m}; corrected = true end
         res.utc = true
         -- we're in UTC, so let's go local...
-        res = res:toLocal()
+        if corrected then
+            res = res:toLocal()
+        end-- we're UTC!
     end
     return res
 end
@@ -634,7 +658,6 @@ function parse_date (s)
         return d
     end
 end
-
 
 return Date
 

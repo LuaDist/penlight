@@ -3,6 +3,8 @@ local test = require 'pl.test'
 local lapp = require 'pl.lapp'
 local utils = require 'pl.utils'
 local tablex = require 'pl.tablex'
+local path = require 'pl.path'
+local normpath = path.normpath
 
 local k = 1
 function check (spec,args,match)
@@ -47,15 +49,32 @@ check(simple,
     {'-o','in'},
     {quiet=false,p=false,o='in',input='<file>'})
 
+-- Check lapp.callback.
+local calls = {}
+function lapp.callback(param, arg)
+    table.insert(calls, {param, arg})
+end
 check(simple,
-    {'-o','help','-q','test-lapp.lua'},
-    {quiet=true,p=false,o='help',input='<file>',input_name='test-lapp.lua'})
+    {'-o','help','-q',normpath 'tests/test-lapp.lua'},
+    {quiet=true,p=false,o='help',input='<file>',input_name=normpath 'tests/test-lapp.lua'})
+test.asserteq(calls, {
+    {'o', 'help'},
+    {'quiet', '-q'},
+    {'input', normpath 'tests/test-lapp.lua'}
+})
+lapp.callback = nil
 
 local longs = [[
     --open (string)
 ]]
 
 check(longs,{'--open','folder'},{open='folder'})
+
+local long_file = [[
+    --open (default stdin)
+]]
+
+check(long_file,{'--open',normpath 'tests/test-lapp.lua'},{open='<file>',open_name=normpath 'tests/test-lapp.lua'})
 
 local extras1 = [[
     <files...> (string) A bunch of files
@@ -114,6 +133,10 @@ local false_flag = [[
 check (false_flag,{},{f=true,g=false})
 
 check (false_flag,{'-g','-f'},{f=false,g=true})
+
+-- '--' indicates end of parameter parsing
+check (false_flag,{'-g','--'},{f=true,g=true})
+check (false_flag,{'-g','--','-a','frodo'},{f=true,g=true; '-a','frodo'})
 
 local addtype = [[
   -l (intlist) List of items

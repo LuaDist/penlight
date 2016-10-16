@@ -11,6 +11,8 @@ local setfenv,getfenv = utils.setfenv, utils.getfenv
 local ok,code = utils.execute(lua..' -v')
 asserteq(ok,true)
 asserteq(code,0)
+-- does it return false when it fails ?
+asserteq(utils.execute('most-likely-nonexistent-command'),false)
 
 -- table.pack is defined for 5.1
 local t = table.pack(1,nil,'hello')
@@ -37,9 +39,10 @@ test.assertmatch(err,'attempt to load')
 if not package.path:find '.[/\\]%?' then
     package.path = './?.lua;'..package.path
 end
+
 asserteq(
-    package.searchpath('test-fenv',package.path):gsub('\\','/'),
-    './test-fenv.lua'
+    package.searchpath('tests.test-fenv',package.path):gsub('\\','/'),
+    './tests/test-fenv.lua'
 )
 
 -- testing getfenv and setfenv for both interpreters

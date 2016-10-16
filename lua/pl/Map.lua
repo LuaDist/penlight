@@ -17,16 +17,11 @@ local tmakeset,deepcompare,merge,keys,difference,tupdate = tablex.makeset,tablex
 local pretty_write = require 'pl.pretty' . write
 local Map = stdmt.Map
 local Set = stdmt.Set
-local List = stdmt.List
 
 local class = require 'pl.class'
 
 -- the Map class ---------------------
 class(nil,nil,Map)
-
-local function makemap (m)
-    return setmetatable(m,Map)
-end
 
 function Map:_init (t)
     local mt = getmetatable(t)
@@ -39,7 +34,7 @@ end
 
 
 local function makelist(t)
-    return setmetatable(t,List)
+    return setmetatable(t, require('pl.List'))
 end
 
 --- list of keys.
@@ -73,6 +68,7 @@ end
 Map.len = tablex.size
 
 --- put a value into the map.
+-- This will remove the key if the value is `nil`
 -- @param key the key
 -- @param val the value
 function Map:set (key,val)
@@ -96,13 +92,13 @@ function Map:getvalues (keys)
 end
 
 --- update the map using key/value pairs from another table.
--- @param table
+-- @tab table
 -- @function Map:update
 Map.update = tablex.update
 
 --- equality between maps.
 -- @within metamethods
--- @param m another map.
+-- @tparam Map m another map.
 function Map:__eq (m)
     -- note we explicitly ask deepcompare _not_ to use __eq!
     return deepcompare(self,m,true)

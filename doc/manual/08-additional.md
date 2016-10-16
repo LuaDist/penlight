@@ -47,8 +47,8 @@ captures, so that we're forced to use a slightly awkward nested if-statement.
 
 Verification issues will further cloud the picture, since regular expression
 people try to enforce constraints (like year cannot be more than four digits)
-using regular expressions, on the usual grounds that one shouldn't stop using a
-hammer when one is enjoying oneself.
+using regular expressions, on the usual grounds that you shouldn't stop using a
+hammer when you are enjoying yourself.
 
 `pl.sip` provides a simple, intuitive way to detect patterns in strings and
 extract relevant parts.
@@ -67,9 +67,9 @@ extract relevant parts.
     > = c('ref=long name, no line',res)
     false
 
-`sip.compile` creates a pattern matcher function, which is given a string and a
-table. If it matches the string, then `true` is returned and the table is
-populated according to the _named fields_ in the pattern.
+`sip.compile` creates a pattern matcher function, which takes a string and a
+table as arguments. If the string matches the pattern, then `true` is returned
+and the table is populated according to the captures within the pattern.
 
 Here is another version of the date parser:
 
@@ -94,36 +94,35 @@ Here is another version of the date parser:
         end
     end
 
-SIP patterns start with '$', then a one-letter type, and then an optional
-variable in curly braces.
+SIP captures start with '$', then a one-character type, and then an
+optional variable name in curly braces.
 
-    Type    Meaning
-    v         variable, or identifier.
-    i          possibly signed integer
-    f          floating-point number
-    r          'rest of line'
-    q         quoted string (either ' or ")
+    Type      Meaning
+    v         identifier
+    i         possibly signed integer
+    f         floating-point number
+    r         rest of line
+    q         quoted string (quoted using either ' or ")
     p         a path name
-    (         anything inside (...)
-    [         anything inside [...]
-    {         anything inside {...}
-    <         anything inside <...>
-    [---------------------------------]
-    S         non-space
-    d         digits
-    ...
+    (         anything inside balanced parentheses
+    [         anything inside balanced brackets
+    {         anything inside balanced curly brackets
+    <         anything inside balanced angle brackets
 
-If a type is not one of v,i,f,r or q, then it's assumed to be one of the standard
-Lua character classes.  Any spaces you leave in your pattern will match any
-number of spaces.  And any 'magic' string characters will be escaped.
+If a type is not one of the above, then it's assumed to be one of the standard
+Lua character classes, and will match one or more repetitions of that class.
+Any spaces you leave in your pattern will match any number of spaces, including
+zero, unless the spaces are between two identifier characters or patterns
+matching them; in that case, at least one space will be matched.
 
 SIP captures (like `$v{mon}`) do not have to be named. You can use just `$v`, but
 you have to be consistent; if a pattern contains unnamed captures, then all
 captures must be unnamed. In this case, the result table is a simple list of
 values.
 
-`sip.match` is a useful shortcut if you like your matches to be 'in place'. (It
-caches the result, so it is not much slower than explicitly using `sip.compile`.)
+`sip.match` is a useful shortcut if you want to compile and match in one call,
+without saving the compiled pattern. It caches the result, so it is not much
+slower than explicitly using `sip.compile`.
 
     > sip.match('($q{first},$q{second})','("john","smith")',res)
     true
@@ -141,8 +140,9 @@ caches the result, so it is not much slower than explicitly using `sip.compile`.
 
 As a general rule, allow for whitespace in your patterns.
 
-Finally, putting a ' $' at the end of a pattern means 'capture the rest of the
-line, starting at the first non-space'.
+Finally, putting a '$' at the end of a pattern means 'capture the rest of the
+line, starting at the first non-space'. It is a shortcut for '$r{rest}',
+or just '$r' if no named captures are used.
 
     > sip.match('( $q , $q ) $','("jan", "smit") and a string',res)
     true
@@ -212,12 +212,22 @@ Here is a command-line session using this script:
 There are two kinds of lines in Lapp usage strings which are meaningful; option
 and parameter lines. An option line gives the short option, optionally followed
 by the corresponding long option. A type specifier in parentheses may follow.
-Similarly, a parameter line starts with '<' PARAMETER '>', followed by a type
-specifier. Type specifiers are either of the form '(default ' VALUE ')' or '('
-TYPE ')'; the default specifier means that the parameter or option has a default
-value and is not required. TYPE is one of 'string','number','file-in' or
-'file-out'; VALUE is a number, one of ('stdin','stdout','stderr') or a token. The
-rest of the line is not parsed and can be used for explanatory text.
+Similarly, a parameter line starts with '<NAME>', followed by a type
+specifier.
+
+Type specifiers usually start with a type name: one of 'boolean', 'string','number','file-in' or
+'file-out'.  You may leave this out, but then _must_ say 'default' followed by a value.
+If a flag or parameter has a default, it is not _required_ and is set to the default. The actual 
+type is deduced from this value (number, string, file or boolean) if not provided directly. 
+'Deduce' is a fancy word for 'guess' and it can be wrong, e.g '(default 1)'
+will always be a number. You can say '(string default 1)' to override the guess.
+There are file values for the predefined console streams: stdin, stdout, stderr.
+
+The boolean type is the default for flags. Not providing the type specifier is equivalent to
+'(boolean default false)`.  If the flag is meant to be 'turned off' then either the full
+'(boolean default true)` or the shortcut '(default true)' will work.
+
+The rest of the line is ignored and can be used for explanatory text.
 
 This script shows the relation between the specified parameter names and the
 fields in the output table.
@@ -228,7 +238,10 @@ fields in the output table.
         -p          A simple optional flag, defaults to false
         -q,--quiet  A simple flag with long name
         -o  (string)  A required option with argument
-        <input> (default stdin)  Optional input file parameter
+        -s  (default 'save') Optional string with default 'save' (single quotes ignored)
+        -n  (default 1) Optional numerical flag with default 1
+        -b  (string default 1)  Optional string flag with default '1' (type explicit)
+        <input> (default stdin)  Optional input file parameter, reads from stdin
       ]]
 
       for k,v in pairs(args) do
@@ -269,23 +282,29 @@ Files don't really have to be closed explicitly for short scripts with a quick
 well-defined mission, since the result of garbage-collecting file objects is to
 close them.
 
-#### Enforcing a Range for a Parameter
+#### Enforcing a Range and Enumerations
 
-The type specifier can also be of the form '(' MIN '..' MAX ')'.
+The type specifier can also be of the form '(' MIN '..' MAX ')' or a set of strings 
+separated by '|'.
 
     local lapp = require 'pl.lapp'
     local args = lapp [[
         Setting ranges
         <x> (1..10)  A number from 1 to 10
         <y> (-5..1e6) Bigger range
+        <z> (slow|medium|fast)
     ]]
 
     print(args.x,args.y)
 
-Here the meaning is that the value is greater or equal to MIN and less or equal
-to MAX; there is no provision for forcing a parameter to be a whole number.
+Here the meaning of ranges is that the value is greater or equal to MIN and less or equal
+to MAX.
+An 'enum' is a _string_ that can only have values from a specified set.
 
-You may also define custom types that can be used in the type specifier:
+#### Custom Types
+
+There is no builti-in way to force a parameter to be a whole number, but
+you may define a custom type that does this:
 
     lapp = require ('pl.lapp')
 
@@ -303,9 +322,21 @@ You may also define custom types that can be used in the type specifier:
 
 `lapp.add_type` takes three parameters, a type name, a converter and a constraint
 function. The constraint function is expected to throw an assertion if some
-condition is not true; we use lapp.assert because it fails in the standard way
+condition is not true; we use `lapp.assert` because it fails in the standard way
 for a command-line script. The converter argument can either be a type name known
 to Lapp, or a function which takes a string and generates a value.
+
+Here's a useful custom type that allows dates to be input as @{pl.Date} values:
+
+    local df = Date.Format()
+    
+    lapp.add_type('date',
+        function(s)
+            local d,e = df:parse(s)
+            lapp.assert(d,e)
+            return d
+        end
+    )
 
 #### 'varargs' Parameter Arrays
 
@@ -365,6 +396,9 @@ files provided, and only close them at the end of the script. See the `xhead.lua
 example for another implementation.)
 
 Flags and options may also be declared as vararg arrays, and can occur anywhere.
+If there is both a short and long form, then the trailing "..." must happen after the long form,
+for example "-x,--network... (string)...",
+
 Bear in mind that short options can be combined (like 'tar -xzf'), so it's
 perfectly legal to have '-vvv'. But normally the value of args.v is just a simple
 `true` value.
@@ -476,3 +510,77 @@ And here we can see the output of `test.lua`:
       height = 20,
       flag4 = true
     }
+
+### Simple Test Framework
+
+`pl.test` was originally developed for the sole purpose of testing Penlight itself, 
+but you may find it useful for your own applications. ([There are many other options](http://lua-users.org/wiki/UnitTesting).)
+
+Most of the goodness is in `test.asserteq`.  It uses `tablex.deepcompare` on its two arguments, 
+and by default quits the test application with a non-zero exit code, and an informative
+message printed to stderr:
+
+    local test = require 'pl.test'
+
+    test.asserteq({10,20,30},{10,20,30.1})
+
+    --~ test-test.lua:3: assertion failed
+    --~ got:	{
+    --~  [1] = 10,
+    --~  [2] = 20,
+    --~  [3] = 30
+    --~ }
+    --~ needed:	{
+    --~  [1] = 10,
+    --~  [2] = 20,
+    --~  [3] = 30.1
+    --~ }
+    --~ these values were not equal
+    
+This covers most cases but it's also useful to compare strings using `string.match`
+
+    -- must start with bonzo the dog
+    test.assertmatch ('bonzo the dog is here','^bonzo the dog')
+    -- must end with an integer
+    test.assertmatch ('hello 42','%d+$')
+
+Since Lua errors are usually strings, this matching strategy is used to test 'exceptions':
+
+    test.assertraise(function()
+        local t = nil
+        print(t.bonzo)
+    end,'nil value')
+
+(Some care is needed to match the essential part of the thrown error if you care
+for portability, since in Lua 5.2
+the exact error is "attempt to index local 't' (a nil value)" and in Lua 5.3 the error
+is "attempt to index a nil value (local 't')")
+
+There is an extra optional argument to these test functions, which is helpful when writing
+test helper functions. There you want to highlight the failed line, not the actual call
+to `asserteq` or `assertmatch` - line 33 here is the call to `is_iden`
+
+    function is_iden(str)
+        test.assertmatch(str,'^[%a_][%w_]*$',1)
+    end
+
+    is_iden 'alpha_dog'
+    is_iden '$dollars'
+
+    --~ test-test.lua:33: assertion failed
+    --~ got:	"$dollars"
+    --~ needed:	"^[%a_][%w_]*$"
+    --~ these strings did not match
+
+Useful Lua functions often return multiple values, and `test.tuple` is a convenient way to
+capture these values, whether they contain nils or not.
+
+    T = test.tuple
+
+    --- common error pattern
+    function failing()
+        return nil,'failed'
+    end
+
+    test.asserteq(T(failing()),T(nil,'failed'))
+

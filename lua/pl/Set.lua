@@ -13,11 +13,14 @@
 --     [apple,orange,banana]   [blue,green,orange,red]
 --     > = fruit+colours
 --     [blue,green,apple,red,orange,banana]
---     > = fruit*colours
 --     [orange]
+--     > more_fruits = fruit + 'apricot'
+--     > = fruit*colours
+--    > =  more_fruits, fruit
+--    [banana,apricot,apple,orange]	[banana,apple,orange]
 --
--- Depdencies: `pl.utils`, `pl.tablex`, `pl.class`, (`pl.List` if __tostring is used)
--- @classmod pl.Set
+-- Dependencies: `pl.utils`, `pl.tablex`, `pl.class`, (`pl.List` if __tostring is used)
+-- @module pl.Set
 
 local tablex = require 'pl.tablex'
 local utils = require 'pl.utils'
@@ -61,6 +64,7 @@ end
 --- get a list of the values in a set.
 -- @param self a Set
 -- @function Set.values
+-- @return a list
 Set.values = Map.keys
 
 --- map a function over the values of a set.
@@ -85,15 +89,39 @@ function Set.union (self,set)
     return merge(self,set,true)
 end
 
+--- modifies '+' operator to allow addition of non-Set elements
+--- Preserves +/- semantics - does not modify first argument.
+local function setadd(self,other)
+    local mt = getmetatable(other)
+    if mt == Set or mt == Map then
+        return Set.union(self,other)
+    else
+        local new = Set(self)
+        new[other] = true
+        return new
+    end
+end
+
 --- union of sets.
 -- @within metamethods
 -- @function Set.__add
-Set.__add = Set.union
+
+Set.__add = setadd
 
 --- intersection of two sets (also *).
 -- @param self a Set
 -- @param set another set
 -- @return a new set
+-- @usage
+-- > s = Set{10,20,30}
+-- > t = Set{20,30,40}
+-- > = t
+-- [20,30,40]
+-- > = Set.intersection(s,t)
+-- [30,20]
+-- > = s*t
+-- [30,20]
+
 function Set.intersection (self,set)
     return merge(self,set,false)
 end
@@ -111,11 +139,23 @@ function Set.difference (self,set)
     return difference(self,set,false)
 end
 
+--- modifies "-" operator to remove non-Set values from set.
+--- Preserves +/- semantics - does not modify first argument.
+local function setminus (self,other)
+    local mt = getmetatable(other)
+    if mt == Set or mt == Map then
+        return Set.difference(self,other)
+    else
+        local new = Set(self)
+        new[other] = nil
+        return new
+    end
+end
 
 --- difference of sets.
 -- @within metamethods
 -- @function Set.__sub
-Set.__sub = Set.difference
+Set.__sub = setminus
 
 -- a new set with elements in _either_ the set _or_ other but not both (also ^).
 -- @param self a Set

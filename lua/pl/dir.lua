@@ -1,6 +1,6 @@
---- Getting directory contents and matching them against wildcards.
+--- Listing files in directories and creating/removing directory paths.
 --
--- Dependencies: `pl.utils`, `pl.path`, `pl.tablex`
+-- Dependencies: `pl.utils`, `pl.path`
 --
 -- Soft Dependencies: `alien`, `ffi` (either are used on Windows for copying/moving files)
 -- @module pl.dir
@@ -8,21 +8,22 @@
 local utils = require 'pl.utils'
 local path = require 'pl.path'
 local is_windows = path.is_windows
-local tablex = require 'pl.tablex'
 local ldir = path.dir
-local chdir = path.chdir
 local mkdir = path.mkdir
 local rmdir = path.rmdir
 local sub = string.sub
-local os,pcall,ipairs,pairs,require,setmetatable,_G = os,pcall,ipairs,pairs,require,setmetatable,_G
+local os,pcall,ipairs,pairs,require,setmetatable = os,pcall,ipairs,pairs,require,setmetatable
 local remove = os.remove
 local append = table.insert
 local wrap = coroutine.wrap
 local yield = coroutine.yield
 local assert_arg,assert_string,raise = utils.assert_arg,utils.assert_string,utils.raise
-local List = utils.stdmt.List
 
 local dir = {}
+
+local function makelist(l)
+    return setmetatable(l, require('pl.List'))
+end
 
 local function assert_dir (n,val)
     assert_arg(n,val,'string',path.isdir,'not a directory',4)
@@ -33,37 +34,39 @@ local function assert_file (n,val)
 end
 
 local function filemask(mask)
-    mask = utils.escape(mask)
-    return mask:gsub('%%%*','.+'):gsub('%%%?','.')..'$'
+    mask = utils.escape(path.normcase(mask))
+    return '^'..mask:gsub('%%%*','.*'):gsub('%%%?','.')..'$'
 end
 
---- does the filename match the shell pattern?.
--- (cf. fnmatch.fnmatch in Python, 11.8)
--- @param file A file name
--- @param pattern A shell pattern
--- @return true or false
--- @raise file and pattern must be strings
-function dir.fnmatch(file,pattern)
-    assert_string(1,file)
+--- Test whether a file name matches a shell pattern.
+-- Both parameters are case-normalized if operating system is
+-- case-insensitive.
+-- @string filename A file name.
+-- @string pattern A shell pattern. The only special characters are
+-- `'*'` and `'?'`: `'*'` matches any sequence of characters and
+-- `'?'` matches any single character.
+-- @treturn bool
+-- @raise dir and mask must be strings
+function dir.fnmatch(filename,pattern)
+    assert_string(1,filename)
     assert_string(2,pattern)
-    return path.normcase(file):find(filemask(pattern)) ~= nil
+    return path.normcase(filename):find(filemask(pattern)) ~= nil
 end
 
---- return a list of all files which match the pattern.
--- (cf. fnmatch.filter in Python, 11.8)
--- @param files A table containing file names
--- @param pattern A shell pattern.
--- @return list of files
--- @raise file and pattern must be strings
-function dir.filter(files,pattern)
-    assert_arg(1,files,'table')
+--- Return a list of all file names within an array which match a pattern.
+-- @tab filenames An array containing file names.
+-- @string pattern A shell pattern.
+-- @treturn List(string) List of matching file names.
+-- @raise dir and mask must be strings
+function dir.filter(filenames,pattern)
+    assert_arg(1,filenames,'table')
     assert_string(2,pattern)
     local res = {}
     local mask = filemask(pattern)
-    for i,f in ipairs(files) do
-        if f:find(mask) then append(res,f) end
+    for i,f in ipairs(filenames) do
+        if path.normcase(f):find(mask) then append(res,f) end
     end
-    return setmetatable(res,List)
+    return makelist(res)
 end
 
 local function _listfiles(dir,filemode,match)
@@ -78,13 +81,13 @@ local function _listfiles(dir,filemode,match)
             end
         end
     end
-    return setmetatable(res,List)
+    return makelist(res)
 end
 
 --- return a list of all files in a directory which match the a shell pattern.
--- @param dir A directory. If not given, all files in current directory are returned.
--- @param mask  A shell pattern. If not given, all files are returned.
--- @return lsit of files
+-- @string dir A directory. If not given, all files in current directory are returned.
+-- @string mask  A shell pattern. If not given, all files are returned.
+-- @treturn {string} list of files
 -- @raise dir and mask must be strings
 function dir.getfiles(dir,mask)
     assert_dir(1,dir)
@@ -93,41 +96,34 @@ function dir.getfiles(dir,mask)
     if mask then
         mask = filemask(mask)
         match = function(f)
-            return f:find(mask)
+            return path.normcase(f):find(mask)
         end
     end
     return _listfiles(dir,true,match)
 end
 
 --- return a list of all subdirectories of the directory.
--- @param dir A directory
--- @return a list of directories
--- @raise dir must be a string
+-- @string dir A directory
+-- @treturn {string} a list of directories
+-- @raise dir must be a a valid directory
 function dir.getdirectories(dir)
     assert_dir(1,dir)
     return _listfiles(dir,false)
 end
-
-local function quote_argument (f)
-    f = path.normcase(f)
-    if f:find '%s' then
-        return '"'..f..'"'
-    else
-        return f
-    end
-end
-
 
 local alien,ffi,ffi_checked,CopyFile,MoveFile,GetLastError,win32_errors,cmd_tmpfile
 
 local function execute_command(cmd,parms)
    if not cmd_tmpfile then cmd_tmpfile = path.tmpname () end
    local err = path.is_windows and ' > ' or ' 2> '
-    cmd = cmd..' '..parms..err..cmd_tmpfile
+    cmd = cmd..' '..parms..err..utils.quote_arg(cmd_tmpfile)
     local ret = utils.execute(cmd)
     if not ret then
-        return false,(utils.readfile(cmd_tmpfile):gsub('\n(.*)',''))
+        local err = (utils.readfile(cmd_tmpfile):gsub('\n(.*)',''))
+        remove(cmd_tmpfile)
+        return false,err
     else
+        remove(cmd_tmpfile)
         return true
     end
 end
@@ -191,7 +187,7 @@ local function find_ffi_copyfile ()
 end
 
 local function two_arguments (f1,f2)
-    return quote_argument(f1)..' '..quote_argument(f2)
+    return utils.quote_arg(f1)..' '..utils.quote_arg(f2)
 end
 
 local function file_op (is_copy,src,dest,flag)
@@ -208,10 +204,11 @@ local function file_op (is_copy,src,dest,flag)
             dest = path.normcase(dest)
             local cmd = is_copy and 'copy' or 'rename'
             local res, err = execute_command('copy',two_arguments(src,dest))
-            if not res then return nil,err end
+            if not res then return false,err end
             if not is_copy then
-                return execute_command('del',quote_argument(src))
+                return execute_command('del',utils.quote_arg(src))
             end
+            return true
         else
             if path.isdir(dest) then
                 dest = path.join(dest,path.basename(src))
@@ -235,10 +232,10 @@ local function file_op (is_copy,src,dest,flag)
 end
 
 --- copy a file.
--- @param src source file
--- @param dest destination file or directory
--- @param flag true if you want to force the copy (default)
--- @return true if operation succeeded
+-- @string src source file
+-- @string dest destination file or directory
+-- @bool flag true if you want to force the copy (default)
+-- @treturn bool operation succeeded
 -- @raise src and dest must be strings
 function dir.copyfile (src,dest,flag)
     assert_string(1,src)
@@ -248,9 +245,9 @@ function dir.copyfile (src,dest,flag)
 end
 
 --- move a file.
--- @param src source file
--- @param dest destination file or directory
--- @return true if operation succeeded
+-- @string src source file
+-- @string dest destination file or directory
+-- @treturn bool operation succeeded
 -- @raise src and dest must be strings
 function dir.movefile (src,dest)
     assert_string(1,src)
@@ -272,7 +269,7 @@ local function _dirfiles(dir,attrib)
             end
         end
     end
-    return setmetatable(dirs,List),setmetatable(files,List)
+    return makelist(dirs), makelist(files)
 end
 
 
@@ -293,11 +290,11 @@ end
 -- before we go deeper. This means that you can modify the returned list of directories before
 -- continuing.
 -- This is a clone of os.walk from the Python libraries.
--- @param root A starting directory
--- @param bottom_up False if we start listing entries immediately.
--- @param follow_links follow symbolic links
+-- @string root A starting directory
+-- @bool bottom_up False if we start listing entries immediately.
+-- @bool follow_links follow symbolic links
 -- @return an iterator returning root,dirs,files
--- @raise root must be a string
+-- @raise root must be a directory
 function dir.walk(root,bottom_up,follow_links)
     assert_dir(1,root)
     local attrib
@@ -310,7 +307,7 @@ function dir.walk(root,bottom_up,follow_links)
 end
 
 --- remove a whole directory tree.
--- @param fullpath A directory path
+-- @string fullpath A directory path
 -- @return true or nil
 -- @return error if failed
 -- @raise fullpath must be a string
@@ -319,9 +316,11 @@ function dir.rmtree(fullpath)
     if path.islink(fullpath) then return false,'will not follow symlink' end
     for root,dirs,files in dir.walk(fullpath,true) do
         for i,f in ipairs(files) do
-            remove(path.join(root,f))
+            local res, err = remove(path.join(root,f))
+            if not res then return nil,err end
         end
-        rmdir(root)
+        local res, err = rmdir(root)
+        if not res then return nil,err end
     end
     return true
 end
@@ -351,7 +350,7 @@ end
 
 --- create a directory path.
 -- This will create subdirectories as necessary!
--- @param p A directory path
+-- @string p A directory path
 -- @return true on success, nil + errormsg on failure
 -- @raise failure to create
 function dir.makepath (p)
@@ -362,10 +361,10 @@ end
 
 --- clone a directory tree. Will always try to create a new directory structure
 -- if necessary.
--- @param path1 the base path of the source tree
--- @param path2 the new base path for the destination
--- @param file_fun an optional function to apply on all files
--- @param verbose an optional boolean to control the verbosity of the output.
+-- @string path1 the base path of the source tree
+-- @string path2 the new base path for the destination
+-- @func file_fun an optional function to apply on all files
+-- @bool verbose an optional boolean to control the verbosity of the output.
 --  It can also be a logging function that behaves like print()
 -- @return true, or nil
 -- @return error message, or list of failed directory creations
@@ -417,7 +416,7 @@ function dir.clonetree (path1,path2,file_fun,verbose)
 end
 
 --- return an iterator over all entries in a directory tree
--- @param d a directory
+-- @string d a directory
 -- @return an iterator giving pathname and mode (true for dir, false otherwise)
 -- @raise d must be a non-empty string
 function dir.dirtree( d )
@@ -449,15 +448,15 @@ function dir.dirtree( d )
 end
 
 
----	Recursively returns all the file starting at <i>path</i>. It can optionally take a shell pattern and
---	only returns files that match <i>pattern</i>. If a pattern is given it will do a case insensitive search.
---	@param start_path {string} A directory. If not given, all files in current directory are returned.
---	@param pattern {string} A shell pattern. If not given, all files are returned.
---	@return Table containing all the files found recursively starting at <i>path</i> and filtered by <i>pattern</i>.
---  @raise start_path must be a string
+---	Recursively returns all the file starting at _path_. It can optionally take a shell pattern and
+--	only returns files that match _pattern_. If a pattern is given it will do a case insensitive search.
+--	@string start_path  A directory. If not given, all files in current directory are returned.
+--	@string pattern A shell pattern. If not given, all files are returned.
+--	@treturn List(string) containing all the files found recursively starting at _path_ and filtered by _pattern_.
+-- @raise start_path must be a directory
 function dir.getallfiles( start_path, pattern )
     assert_dir(1,start_path)
-    pattern = pattern or ""
+    pattern = pattern or "*"
 
     local files = {}
     local normcase = path.normcase
@@ -470,7 +469,7 @@ function dir.getallfiles( start_path, pattern )
         end
     end
 
-    return files
+    return makelist(files)
 end
 
 return dir

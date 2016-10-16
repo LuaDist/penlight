@@ -45,10 +45,10 @@ local function strip (s)
     return (rstrip(s):gsub('^%s*',''))
 end
 
--- this gives `l` the standard List metatable, so that if you
--- do choose to pull in pl.List, you can use its methods on such lists.
-local function make_list(l)
-    return setmetatable(l,utils.stdmt.List)
+-- This gives `l` the standard List metatable,
+-- pulling in the List module.
+local function makelist(l)
+    return setmetatable(l, require('pl.List'))
 end
 
 local function map(fun,t)
@@ -79,7 +79,7 @@ local function split(line,delim,csv,n)
         -- in CSV mode trailiing commas are significant!
         if line:match ',$' then append(res,'') end
     end
-    return make_list(res)
+    return makelist(res)
 end
 
 local function find(t,v)
@@ -97,17 +97,17 @@ local DataMT = {
         for res in data.query(self,name) do
             append(arr,res)
         end
-        return make_list(arr)
+        return makelist(arr)
     end,
 
     copy_select = function(self,condn)
         condn = parse_select(condn,self)
         local iter = data.query(self,condn)
         local res = {}
-        local row = make_list{iter()}
+        local row = makelist{iter()}
         while #row > 0 do
             append(res,row)
-            row = make_list{iter()}
+            row = makelist{iter()}
         end
         res.delim = self.delim
         return data.new(res,split(condn.fields,','))
@@ -134,16 +134,16 @@ end
 -- @function Data.column_by_name
 
 --- return a query iterator on this data (method).
--- @param condn the query expression
+-- @string condn the query expression
 -- @function Data.select
 -- @see data.query
 
 --- return a row iterator on this data (method).
--- @param condn the query expression
+-- @string condn the query expression
 -- @function Data.select_row
 
 --- return a new data object based on this query (method).
--- @param condn the query expression
+-- @string condn the query expression
 -- @function Data.copy_select
 
 --- return the field names of this data object (method).
@@ -201,34 +201,42 @@ end
 
 --- read a delimited file in a Lua table.
 -- By default, attempts to treat first line as separated list of fieldnames.
--- @param file a filename or a file-like object (default stdin)
--- @param cnfg options table: can override `delim` (a string pattern), `fieldnames` (a list),
--- specify `no_convert` (default is to conversion), `numfields` (indices of columns known
--- to be numbers) and `thousands_dot` (thousands separator in Excel CSV is '.').
--- If `csv` is set then fields may be double-quoted and contain commas;
+-- @param file a filename or a file-like object
+-- @tab cnfg parsing options
+-- @string cnfg.delim a string pattern to split fields
+-- @array cnfg.fieldnames (i.e. don't read from first line)
+-- @bool cnfg.no_convert (default is to try conversion on first data line)
+-- @tab cnfg.convert table of custom conversion functions with column keys
+-- @int cnfg.numfields indices of columns known to be numbers
+-- @bool cnfg.last_field_collect only split as many fields as fieldnames.
+-- @int cnfg.thousands_dot thousands separator in Excel CSV is '.'
+-- @bool cnfg.csv fields may be double-quoted and contain commas;
+-- Also, empty fields are considered to be equivalent to zero.
 -- @return `data` object, or `nil`
 -- @return error message. May be a file error, 'not a file-like object'
 -- or a conversion error
 function data.read(file,cnfg)
-    local err,opened,count,line,csv
+    local err,opened,count,line
     local D = {}
     if not cnfg then cnfg = {} end
     local f,err,opened = open_file(file,'r')
     if not f then return nil, err end
     local thousands_dot = cnfg.thousands_dot
+    local csv = cnfg.csv
+    if csv then cnfg.delim = ',' end
 
     -- note that using dot as the thousands separator (@thousands_dot)
-    -- requires a special conversion function!
+    -- requires a special conversion function! For CSV, _empty fields_ are
+    -- considered to default to numerial zeroes.
     local tonumber = tonumber
     local function try_number(x)
         if thousands_dot then x = x:gsub('%.(...)','%1') end
+        if csv and x == '' then x = '0' end
         local v = tonumber(x)
         if v == nil then return nil,"not a number" end
         return v
     end
 
-    csv = cnfg.csv
-    if csv then cnfg.delim = ',' end
     count = 1
     line = f:read()
     if not line then return nil, "empty file" end
@@ -297,7 +305,7 @@ function data.read(file,cnfg)
         if not cnfg.no_convert then
             local fields = split(line,D.delim,csv,nfields)
             for i = 1,#fields do
-                if not find(numfields,i) and tonumber(fields[i]) then
+                if not find(numfields,i) and try_number(fields[i]) then
                     append_conversion(i,try_number)
                 end
             end
@@ -344,19 +352,24 @@ end
 -- generated with `new` or `read`.
 -- @param data 2D array
 -- @param file filename or file-like object
--- @param fieldnames list of fields (optional)
--- @param delim delimiter (default tab)
+-- @tparam[opt] {string} fieldnames list of fields (optional)
+-- @string[opt='\t'] delim delimiter (default tab)
+-- @return true or nil, error
 function data.write (data,file,fieldnames,delim)
     local f,err,opened = open_file(file,'w')
     if not f then return nil, err end
-    if fieldnames and #fieldnames > 0 then
-        f:write(concat(data.fieldnames,delim),'\n')
+    if not fieldnames then
+        fieldnames = data.fieldnames
     end
     delim = delim or '\t'
+    if fieldnames and #fieldnames > 0 then
+        f:write(concat(fieldnames,delim),'\n')
+    end
     for i = 1,#data do
         write_row(data,f,data[i],delim)
     end
     if opened then f:close() end
+    return true
 end
 
 
@@ -381,7 +394,7 @@ end
 -- If the table does not have a field called 'delim', then an attempt will be
 -- made to guess it from the fieldnames string, defaults otherwise to tab.
 -- @param d the table.
--- @param fieldnames optional fieldnames
+-- @tparam[opt] {string} fieldnames optional fieldnames
 -- @return the table.
 function data.new (d,fieldnames)
     d.fieldnames = d.fieldnames or fieldnames or ''
@@ -389,7 +402,7 @@ function data.new (d,fieldnames)
         d.delim = guess_delim(d.fieldnames)
         d.fieldnames = split(d.fieldnames,d.delim)
     end
-    d.fieldnames = make_list(d.fieldnames)
+    d.fieldnames = makelist(d.fieldnames)
     d.original_fieldnames = {}
     massage_fieldnames(d.fieldnames,d.original_fieldnames)
     setmetatable(d,DataMT)
@@ -624,10 +637,10 @@ DataMT.select_row = function(d,condn,context)
 end
 
 --- Filter input using a query.
--- @param Q a query string
+-- @string Q a query string
 -- @param infile filename or file-like object
 -- @param outfile filename or file-like object
--- @param dont_fail true if you want to return an error, not just fail
+-- @bool dont_fail true if you want to return an error, not just fail
 function data.filter (Q,infile,outfile,dont_fail)
     local err
     local d = data.read(infile or 'stdin')

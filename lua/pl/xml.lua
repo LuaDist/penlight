@@ -411,11 +411,17 @@ end
 --- @param idn an initial indent (indents are all strings)
 --- @param indent an indent for each level
 --- @param attr_indent if given, indent each attribute pair and put on a separate line
---- @param xml force prefacing with <?xml...>
+--- @param xml force prefacing with default or custom <?xml...>
 --- @return a string representation
 function _M.tostring(t,idn,indent, attr_indent, xml)
     local buf = {};
-    if xml then buf[1] = "<?xml version='1.0'?>" end
+    if xml then
+        if type(xml) == "string" then
+            buf[1] = xml
+        else
+            buf[1] = "<?xml version='1.0'?>"
+        end
+    end
     _dostring(t, buf, _dostring, xml_escape, nil,idn,indent, attr_indent);
     return t_concat(buf);
 end
@@ -554,12 +560,12 @@ function _M.basic_parse(s,all_text,html)
 
     local function parseargs(s)
       local arg = {}
-      s:gsub("([%w:]+)%s*=%s*([\"'])(.-)%2", function (w, _, a)
+      s:gsub("([%w:%-_]+)%s*=%s*([\"'])(.-)%2", function (w, _, a)
         if html then w = w:lower() end
         arg[w] = unescape(a)
       end)
       if html then
-        s:gsub("([%w:]+)%s*=%s*([^\"']+)%s*", function (w, a)
+        s:gsub("([%w:%-_]+)%s*=%s*([^\"']+)%s*", function (w, a)
           w = w:lower()
           arg[w] = unescape(a)
         end)
@@ -570,9 +576,9 @@ function _M.basic_parse(s,all_text,html)
     t_insert(stack, top)
     local ni,c,label,xarg, empty, _, istart
     local i, j = 1, 1
-    if not html then -- we're not interested in <?xml version="1.0"?>
-        _,istart = s_find(s,'^%s*<%?[^%?]+%?>%s*')
-    else -- or <!DOCTYPE ...>
+    -- we're not interested in <?xml version="1.0"?>
+    _,istart = s_find(s,'^%s*<%?[^%?]+%?>%s*')    
+    if not istart then -- or <!DOCTYPE ...>
         _,istart = s_find(s,'^%s*<!DOCTYPE.->%s*')
     end
     if istart then i = istart+1 end

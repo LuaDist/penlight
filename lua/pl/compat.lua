@@ -1,5 +1,5 @@
 ----------------
---- Lua 5.1/5.2 compatibility
+--- Lua 5.1/5.2/5.3 compatibility.
 -- Ensures that `table.pack` and `package.searchpath` are available
 -- for Lua 5.1 and LuaJIT.
 -- The exported function `load` is Lua 5.2 compatible.
@@ -21,7 +21,7 @@ function compat.execute (cmd)
     if compat.lua51 then
         return res1==0,res1
     else
-        return res1,res2
+        return not not res1,res2
     end
 end
 
@@ -38,7 +38,7 @@ end
 -- With Lua 5.2, may return nil for a function with no global references!
 -- Based on code by [Sergey Rozhenko](http://lua-users.org/lists/lua-l/2010-06/msg00313.html)
 -- @param f a function or a call stack reference
--- @function compat.setfenv
+-- @function compat.getfenv
 
 ---------------
 -- Set environment of a function
